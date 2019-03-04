@@ -12,26 +12,61 @@ from odoo.exceptions import Warning as UserError
 from odoo.tools.translate import _
 
 
-SUBTASK_STATES = {'done': 'Done',
-                  'todo': 'TODO',
-                  'waiting': 'Waiting',
-                  'cancelled': 'Cancelled'}
+SUBTASK_STATES = {
+    'done': 'Done',
+    'todo': 'TODO',
+    'waiting': 'Waiting',
+    'cancelled': 'Cancelled'
+}
 
 
 class ProjectTaskSubtask(models.Model):
-    _name = "project.task.subtask"
+
+    _name = 'project.task.subtask'
     _inherit = ['mail.activity.mixin']
-    state = fields.Selection([(k, v) for k, v in list(SUBTASK_STATES.items())],
-                             'Status', required=True, copy=False, default='todo')
-    name = fields.Char(required=True, string="Description")
-    reviewer_id = fields.Many2one('res.users', 'Created by', readonly=True, default=lambda self: self.env.user)
-    project_id = fields.Many2one("project.project", related='task_id.project_id', store=True)
-    user_id = fields.Many2one('res.users', 'Assigned to', required=True)
-    task_id = fields.Many2one('project.task', 'Task', ondelete='cascade', required=True, index="1")
-    task_state = fields.Char(string='Task state', related='task_id.stage_id.name', readonly=True)
+    
+    state = fields.Selection(
+        selection=[(k, v) for k, v in list(SUBTASK_STATES.items())],
+        string='Status',
+        required=True,
+        copy=False,
+        default='todo'
+    )
+    name = fields.Char(
+        required=True,
+        string='Description'
+    )
+    reviewer_id = fields.Many2one(
+        comodel_name='res.users',
+        string='Created by',
+        readonly=True,
+        default=lambda self: self.env.user
+    )
+    project_id = fields.Many2one(
+        comodel_name='project.project',
+        related='task_id.project_id',
+        store=True
+    )
+    user_id = fields.Many2one(
+        comodel_name='res.users',
+        string='Assigned to',
+        required=True
+    )
+    task_id = fields.Many2one(
+        comodel_name='project.task',
+        string='Task',
+        ondelete='cascade',
+        required=True,
+        index='1'
+    )
+    task_state = fields.Char(
+        string='Task state',
+        related='task_id.stage_id.name',
+        readonly=True
+    )
     hide_button = fields.Boolean(compute='_compute_hide_button')
     recolor = fields.Boolean(compute='_compute_recolor')
-    deadline = fields.Datetime(string="Deadline")
+    deadline = fields.Datetime(string='Deadline')
 
     @api.multi
     def _compute_recolor(self):
@@ -104,11 +139,24 @@ class ProjectTaskSubtask(models.Model):
 
 class Task(models.Model):
     _inherit = "project.task"
-    subtask_ids = fields.One2many('project.task.subtask', 'task_id', 'Subtask')
-    kanban_subtasks = fields.Text(compute='_compute_kanban_subtasks')
-    default_user = fields.Many2one('res.users', compute='_compute_default_user')
-    completion = fields.Integer('Completion', compute='_compute_completion')
-    completion_xml = fields.Text(compute='_compute_completion_xml')
+
+    subtask_ids = fields.One2many(
+        comodel_name='project.task.subtask',
+        inverse_name='task_id',
+        string='Subtask'
+    )
+    kanban_subtasks = fields.Text(
+        compute='_compute_kanban_subtasks')
+    default_user = fields.Many2one(
+        comodel_name='res.users', compute='_compute_default_user')
+    completion = fields.Integer(
+        string='Completion', compute='_compute_completion')
+    completion_xml = fields.Text(
+        compute='_compute_completion_xml')
+    full_completion_xml = fields.Text(
+        compute='_compute_full_completion_xml')
+    all_kanban_subtasks = fields.Text(
+        compute='_compute_all_kanban_subtasks')
 
     @api.multi
     def _compute_default_user(self):
@@ -143,6 +191,28 @@ class Task(models.Model):
                                      result_string_td + result_string_wt + '</ul></div>'
 
     @api.multi
+    def _compute_all_kanban_subtasks(self):
+        for record in self:
+            result_string_td = ''
+            result_string_wt = ''
+            if record.subtask_ids:
+                task_todo_ids = record.subtask_ids.filtered(
+                    lambda x: x.state == 'todo')
+                task_waiting_ids = record.subtask_ids.filtered(
+                    lambda x: x.state == 'waiting')
+                if task_todo_ids:
+                    tmp_string_td = escape(': {0}'.format(len(task_todo_ids)))
+                    result_string_td += '<li><b>TODO{}</b></li>'.format(
+                        tmp_string_td)
+                if task_waiting_ids:
+                    tmp_string_wt = escape(
+                        ': {0}'.format(len(task_waiting_ids)))
+                    result_string_wt += '<li><b>Waiting{}</b></li>'.format(
+                        tmp_string_wt)
+            record.all_kanban_subtasks = '<div class="kanban_subtasks"><ul>' + \
+                                     result_string_td + result_string_wt + '</ul></div>'
+
+    @api.multi
     def _compute_completion(self):
         for record in self:
             record.completion = record.task_completion()
@@ -163,7 +233,7 @@ class Task(models.Model):
             color = 'bg-success-full'
             if completion < 50:
                 color = 'bg-danger-full'
-            record.completion_xml = """
+            record.completion_xml = _("""
             <div class="task_progress">
                 <div class="progress_info">
                     Your Checklist:
@@ -181,7 +251,44 @@ class Task(models.Model):
                 </div>
                 <div class="task_completion"> {0}% </div>
             </div>
-            """.format(int(completion), color)
+            """).format(int(completion), color)
+
+    @api.multi
+    def _compute_full_completion_xml(self):
+        for record in self:
+            active_subtasks = record.subtask_ids and \
+                              record.subtask_ids.filtered(
+                                  lambda x: x.state != 'cancelled')
+            if not active_subtasks:
+                record.full_completion_xml = """
+                        <div class="task_progress">
+                        </div>
+                        """
+                continue
+
+            completion = record.task_full_completion()
+            color = 'bg-success-full'
+            if completion < 50:
+                color = 'bg-danger-full'
+            record.full_completion_xml = _("""
+                <div class="task_progress">
+                    <div class="progress_info">
+                        Full Checklist:
+                    </div>
+                    <div class ="o_kanban_counter_progress progress task_progress_bar">
+                        <div data-filter="done"
+                             class ="progress-bar {1} o_bar_has_records task_progress_bar_done"
+                             data-original-title="1 done"
+                             style="width: {0}%;">
+                        </div>
+                        <div data-filter="blocked"
+                             class ="progress-bar bg-danger-full"
+                             data-original-title="0 blocked">
+                        </div>
+                    </div>
+                    <div class="task_completion"> {0}% </div>
+                </div>
+                """).format(int(completion), color)
 
     def task_completion(self):
         user_task_ids = self.subtask_ids.filtered(lambda x: x.user_id.id == self.env.user.id and x.state != 'cancelled')
@@ -189,6 +296,13 @@ class Task(models.Model):
             return 100
         user_done_task_ids = user_task_ids.filtered(lambda x: x.state == 'done')
         return (len(user_done_task_ids) / len(user_task_ids)) * 100
+
+    def task_full_completion(self):
+        all_task_ids = self.subtask_ids.filtered(lambda x: x.state != 'cancelled')
+        if not all_task_ids:
+            return 100
+        all_done_task_ids = all_task_ids.filtered(lambda x: x.state == 'done')
+        return (len(all_done_task_ids) / len(all_task_ids)) * 100
 
     @api.multi
     def send_subtask_email(self, subtask_name, subtask_state, subtask_reviewer_id, subtask_user_id, old_name=None):

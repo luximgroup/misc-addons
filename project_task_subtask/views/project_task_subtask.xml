@@ -44,11 +44,17 @@
             <field name="subtask_ids" invisible="1"/>
             <field name="kanban_subtasks" invisible="1"/>
             <field name="completion_xml" invisible="1"/>
+            <field name="all_kanban_subtasks" invisible="1"/>
+            <field name="full_completion_xml" invisible="1"/>
         </xpath>
         <xpath expr="//div[hasclass('o_kanban_record_bottom')]" position="before">
-          <div>
+          <div class="personal">
              <t t-raw="record.completion_xml.raw_value"/>
              <t t-raw="record.kanban_subtasks.raw_value"/>
+          </div>
+          <div  groups="project.group_project_manager">
+             <t t-raw="record.full_completion_xml.raw_value"/>
+             <t t-raw="record.all_kanban_subtasks.raw_value"/>
           </div>
         </xpath>
       </field>
